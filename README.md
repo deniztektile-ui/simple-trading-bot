@@ -1,2 +1,43 @@
-# simple-trading-bot
-Simple educational trading bot (Moving Average strategy) - paper trading by default. Not financial advice.
+# Simple Trading Bot (Educational)
+
+Простой учебный торговый бот на основе стратегии Moving Average Crossover.
+
+⚠️ **ВАЖНО**:
+- Это **учебный** проект.
+- По умолчанию работает в **paper-trading** режиме (без реальных денег).
+- Не является финансовым советом.
+- Реальная торговля несёт риск потери денег.
+
+## Стратегия
+
+- Fast SMA (10) и Slow SMA (30)
+- Покупка, когда быстрая средняя пересекает медленную снизу вверх
+- Продажа, когда пересекает сверху вниз
+
+## Установка
+
+```bash
+git clone https://github.com/deniztektile-ui/simple-trading-bot.git
+cd simple-trading-bot
+pip3 install -r requirements.txt
+```
+
+## Запуск (Paper Trading)
+
+```bash
+python3 bot.py
+```
+
+Бот будет работать в режиме симуляции и выводить сигналы в терминал.
+
+## Настройка
+
+Открой `config.py` и измени параметры:
+- Символ (по умолчанию BTC/USDT)
+- Периоды SMA
+- Размер позиции
+
+## Для реальной торговли (не рекомендуется новичкам)
+
+Нужно добавить API-ключи Binance в `config.py` и переключить `PAPER_TRADING = False`.
+Только на свой страх и риск.
