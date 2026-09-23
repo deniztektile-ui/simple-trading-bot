@@ -12,6 +12,9 @@ import ccxt
 
 from config import *
 
+START_BAL = float(globals().get("STARTING_BALANCE", POSITION_SIZE_USDT))
+SIZE_USDT = float(POSITION_SIZE_USDT)
+
 
 def create_exchange():
     params = {
@@ -86,6 +89,27 @@ def generate_signal(df):
     return None
 
 
+def equity(balance, position, entry_price, price):
+    if position == "long" and entry_price > 0:
+        return balance + SIZE_USDT * ((price - entry_price) / entry_price)
+    return balance
+
+
+def print_summary(start, balance, position, entry_price, price, trades):
+    eq = equity(balance, position, entry_price, price) if price else balance
+    pnl = eq - start
+    print("\n" + "=" * 60)
+    print("  ITOG")
+    print("=" * 60)
+    print(f"  Bylo:     {start:.2f} USDT")
+    print(f"  Stalo:    {eq:.2f} USDT")
+    print(f"  PnL:      {pnl:+.2f} USDT ({(pnl / start * 100) if start else 0:+.2f}%)")
+    print(f"  Sdelok:   {trades}")
+    if position == "long":
+        print(f"  Open LONG entry={entry_price:.2f} (ne zakryt)")
+    print("=" * 60)
+
+
 def main():
     print("=" * 60)
     print("  Simple Educational Trading Bot")
@@ -96,6 +120,8 @@ def main():
     print(f"Fast SMA:    {FAST_SMA}")
     print(f"Slow SMA:    {SLOW_SMA}")
     print(f"Paper mode:  {PAPER_TRADING}")
+    print(f"Start:       {START_BAL:.2f} USDT")
+    print(f"Size/trade:  {SIZE_USDT:.2f} USDT")
     print("=" * 60)
     print("Press Ctrl+C to stop\n")
 
@@ -103,11 +129,15 @@ def main():
     position = None
     entry_price = 0.0
     last_df = None
+    balance = START_BAL
+    trades = 0
+    last_price = None
 
     while True:
         try:
             time_str = datetime.now().strftime("%H:%M:%S")
             signal = None
+            price = None
 
             try:
                 df = fetch_ohlcv(exchange, SYMBOL, TIMEFRAME)
@@ -119,43 +149,60 @@ def main():
                 slow = df["sma_slow"].iloc[-1]
                 fast_s = f"{fast:.2f}" if pd.notna(fast) else "n/a"
                 slow_s = f"{slow:.2f}" if pd.notna(slow) else "n/a"
-                print(f"[{time_str}] Price: {price:.2f} | FastSMA: {fast_s} | SlowSMA: {slow_s}")
             except Exception as e:
                 print(f"[{time_str}] klines fail ({type(e).__name__}), trying ticker...")
                 price = fetch_last_price(exchange, SYMBOL)
                 if last_df is not None:
                     signal = generate_signal(last_df)
-                print(f"[{time_str}] Price (ticker): {price:.2f} | SMA: last known")
+                fast_s, slow_s = "last", "last"
+
+            last_price = price
+            eq = equity(balance, position, entry_price, price)
+            pos = "LONG" if position == "long" else "FLAT"
+            print(
+                f"[{time_str}] Price: {price:.2f} | FastSMA: {fast_s} | SlowSMA: {slow_s} "
+                f"| {pos} | Bal: {eq:.2f} USDT ({eq - START_BAL:+.2f})"
+            )
 
             if signal == "BUY" and position is None:
                 print(f"  >>> BUY SIGNAL at {price:.2f}")
                 position = "long"
                 entry_price = price
                 mode = "PAPER" if PAPER_TRADING else "LIVE"
-                print(f"  [{mode}] Opened LONG at {entry_price:.2f}")
+                print(f"  [{mode}] Opened LONG {SIZE_USDT:.2f} USDT at {entry_price:.2f}")
 
             elif signal == "SELL" and position == "long":
+                pnl_pct = (price - entry_price) / entry_price
+                pnl_usdt = SIZE_USDT * pnl_pct
+                balance += pnl_usdt
+                trades += 1
                 print(f"  >>> SELL SIGNAL at {price:.2f}")
-                pnl_pct = (price - entry_price) / entry_price * 100
-                print(f"  [PAPER] Closed LONG | PnL: {pnl_pct:+.2f}%")
+                print(f"  Closed LONG | PnL: {pnl_usdt:+.2f} USDT ({pnl_pct*100:+.2f}%) | Bal: {balance:.2f}")
                 position = None
                 entry_price = 0.0
 
             if position == "long" and entry_price > 0:
                 change = (price - entry_price) / entry_price
                 if change <= -STOP_LOSS_PCT:
-                    print(f"  !!! STOP-LOSS triggered at {price:.2f} ({change*100:.2f}%)")
+                    pnl_usdt = SIZE_USDT * change
+                    balance += pnl_usdt
+                    trades += 1
+                    print(f"  !!! STOP-LOSS at {price:.2f} ({change*100:.2f}%) | {pnl_usdt:+.2f} USDT | Bal: {balance:.2f}")
                     position = None
                     entry_price = 0.0
                 elif change >= TAKE_PROFIT_PCT:
-                    print(f"  $$$ TAKE-PROFIT triggered at {price:.2f} ({change*100:.2f}%)")
+                    pnl_usdt = SIZE_USDT * change
+                    balance += pnl_usdt
+                    trades += 1
+                    print(f"  $$$ TAKE-PROFIT at {price:.2f} ({change*100:.2f}%) | {pnl_usdt:+.2f} USDT | Bal: {balance:.2f}")
                     position = None
                     entry_price = 0.0
 
             time.sleep(30)
 
         except KeyboardInterrupt:
-            print("\nBot stopped by user.")
+            print_summary(START_BAL, balance, position, entry_price, last_price, trades)
+            print("Bot stopped by user.")
             break
         except Exception as e:
             print(f"Error: {type(e).__name__}: {e}")
