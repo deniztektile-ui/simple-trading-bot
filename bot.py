@@ -7,39 +7,65 @@ Default: Paper Trading (simulation)
 
 import time
 import pandas as pd
-import numpy as np
 from datetime import datetime
 import ccxt
 
 from config import *
 
+
 def create_exchange():
+    params = {
+        "enableRateLimit": True,
+        "timeout": 20000,
+        "options": {"defaultType": "spot"},
+    }
     if PAPER_TRADING:
         print("[PAPER] Running in Paper Trading mode (simulation)")
-        exchange = ccxt.binance({
-            "enableRateLimit": True,
-        })
+        exchange = ccxt.binance(params)
     else:
         if not API_KEY or not API_SECRET:
             raise ValueError("API_KEY and API_SECRET required for real trading")
         print("[LIVE] REAL TRADING MODE - BE CAREFUL!")
-        exchange = ccxt.binance({
-            "apiKey": API_KEY,
-            "secret": API_SECRET,
-            "enableRateLimit": True,
-        })
+        params["apiKey"] = API_KEY
+        params["secret"] = API_SECRET
+        exchange = ccxt.binance(params)
     return exchange
 
-def fetch_ohlcv(exchange, symbol, timeframe, limit=100):
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-    return df
+
+def fetch_ohlcv(exchange, symbol, timeframe, limit=100, retries=3):
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            if not ohlcv:
+                raise ccxt.NetworkError("empty klines response")
+            df = pd.DataFrame(
+                ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"]
+            )
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            return df
+        except Exception as e:
+            last_error = e
+            wait = 2 * attempt
+            print(f"  [WARN] klines attempt {attempt}/{retries} failed: {type(e).__name__}. retry in {wait}s")
+            time.sleep(wait)
+    raise last_error
+
+
+def fetch_last_price(exchange, symbol):
+    ticker = exchange.fetch_ticker(symbol)
+    price = ticker.get("last") or ticker.get("close")
+    if price is None:
+        raise ValueError("ticker has no last price")
+    return float(price)
+
 
 def add_indicators(df):
+    df = df.copy()
     df["sma_fast"] = df["close"].rolling(window=FAST_SMA).mean()
     df["sma_slow"] = df["close"].rolling(window=SLOW_SMA).mean()
     return df
+
 
 def generate_signal(df):
     if len(df) < SLOW_SMA + 2:
@@ -50,13 +76,15 @@ def generate_signal(df):
     curr_fast = df["sma_fast"].iloc[-1]
     curr_slow = df["sma_slow"].iloc[-1]
 
-    # Golden cross - Buy
+    if pd.isna(prev_fast) or pd.isna(prev_slow) or pd.isna(curr_fast) or pd.isna(curr_slow):
+        return None
+
     if prev_fast <= prev_slow and curr_fast > curr_slow:
         return "BUY"
-    # Death cross - Sell
-    elif prev_fast >= prev_slow and curr_fast < curr_slow:
+    if prev_fast >= prev_slow and curr_fast < curr_slow:
         return "SELL"
     return None
+
 
 def main():
     print("=" * 60)
@@ -72,30 +100,39 @@ def main():
     print("Press Ctrl+C to stop\n")
 
     exchange = create_exchange()
-    position = None          # None / "long"
+    position = None
     entry_price = 0.0
+    last_df = None
 
     while True:
         try:
-            df = fetch_ohlcv(exchange, SYMBOL, TIMEFRAME)
-            df = add_indicators(df)
-            signal = generate_signal(df)
-            price = df["close"].iloc[-1]
             time_str = datetime.now().strftime("%H:%M:%S")
+            signal = None
 
-            print(f"[{time_str}] Price: {price:.2f} | FastSMA: {df['sma_fast'].iloc[-1]:.2f} | SlowSMA: {df['sma_slow'].iloc[-1]:.2f}")
+            try:
+                df = fetch_ohlcv(exchange, SYMBOL, TIMEFRAME)
+                df = add_indicators(df)
+                last_df = df
+                signal = generate_signal(df)
+                price = float(df["close"].iloc[-1])
+                fast = df["sma_fast"].iloc[-1]
+                slow = df["sma_slow"].iloc[-1]
+                fast_s = f"{fast:.2f}" if pd.notna(fast) else "n/a"
+                slow_s = f"{slow:.2f}" if pd.notna(slow) else "n/a"
+                print(f"[{time_str}] Price: {price:.2f} | FastSMA: {fast_s} | SlowSMA: {slow_s}")
+            except Exception as e:
+                print(f"[{time_str}] klines fail ({type(e).__name__}), trying ticker...")
+                price = fetch_last_price(exchange, SYMBOL)
+                if last_df is not None:
+                    signal = generate_signal(last_df)
+                print(f"[{time_str}] Price (ticker): {price:.2f} | SMA: last known")
 
             if signal == "BUY" and position is None:
                 print(f"  >>> BUY SIGNAL at {price:.2f}")
-                if PAPER_TRADING:
-                    position = "long"
-                    entry_price = price
-                    print(f"  [PAPER] Opened LONG at {entry_price:.2f}")
-                else:
-                    # Real order would go here
-                    print("  [LIVE] Would place market buy order")
-                    position = "long"
-                    entry_price = price
+                position = "long"
+                entry_price = price
+                mode = "PAPER" if PAPER_TRADING else "LIVE"
+                print(f"  [{mode}] Opened LONG at {entry_price:.2f}")
 
             elif signal == "SELL" and position == "long":
                 print(f"  >>> SELL SIGNAL at {price:.2f}")
@@ -104,7 +141,6 @@ def main():
                 position = None
                 entry_price = 0.0
 
-            # Simple stop-loss / take-profit in paper mode
             if position == "long" and entry_price > 0:
                 change = (price - entry_price) / entry_price
                 if change <= -STOP_LOSS_PCT:
@@ -116,14 +152,16 @@ def main():
                     position = None
                     entry_price = 0.0
 
-            time.sleep(30)  # проверять каждые 30 секунд
+            time.sleep(30)
 
         except KeyboardInterrupt:
             print("\nBot stopped by user.")
             break
         except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(10)
+            print(f"Error: {type(e).__name__}: {e}")
+            print("  Check VPN / internet. Binance API must be reachable.")
+            time.sleep(15)
+
 
 if __name__ == "__main__":
     main()
