@@ -1,23 +1,21 @@
 # ====================== CONFIG ======================
 
-# Режим работы
 PAPER_TRADING = True          # True = симуляция, False = реальная торговля (опасно!)
 
-# Биржа и пара
 EXCHANGE = "binance"
 SYMBOL = "BTC/USDT"
-TIMEFRAME = "15m"             # 1m, 5m, 15m, 1h, 4h, 1d
+TIMEFRAME = "15m"
 
-# Стратегия Moving Average
 FAST_SMA = 10
 SLOW_SMA = 30
 
-# Риск-менеджмент
-POSITION_SIZE_USDT = 50       # размер позиции в USDT (для paper)
-STOP_LOSS_PCT = 0.02          # 2% stop-loss
-TAKE_PROFIT_PCT = 0.04         # 4% take-profit
+POSITION_SIZE_USDT = 50
+STARTING_BALANCE = 50.0
 
-# API ключи (только если PAPER_TRADING = False)
+STOP_LOSS_PCT = 0.015         # 1.5%
+TAKE_PROFIT_PCT = 0.03        # 3% (1:2)
+
+# API ключи только если PAPER_TRADING = False
 API_KEY = ""
 API_SECRET = ""
 

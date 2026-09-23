@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Simple Educational Trading Bot
-Strategy: SMA Crossover
-Default: Paper Trading (simulation)
+SMA crossover on CLOSED candles only + trend filter.
+Paper trading by default. No profit guarantee.
 """
 
 import time
@@ -35,13 +35,13 @@ def create_exchange():
     return exchange
 
 
-def fetch_ohlcv(exchange, symbol, timeframe, limit=100, retries=3):
+def fetch_ohlcv(exchange, symbol, timeframe, limit=120, retries=3):
     last_error = None
     for attempt in range(1, retries + 1):
         try:
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-            if not ohlcv:
-                raise ccxt.NetworkError("empty klines response")
+            if not ohlcv or len(ohlcv) < 10:
+                raise ccxt.NetworkError("empty/short klines response")
             df = pd.DataFrame(
                 ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"]
             )
@@ -70,27 +70,37 @@ def add_indicators(df):
     return df
 
 
+def closed_bars(df):
+    """Drop the still-forming last candle so SMA does not flicker every 30s."""
+    if len(df) < 3:
+        return df
+    return df.iloc[:-1].copy()
+
+
 def generate_signal(df):
-    if len(df) < SLOW_SMA + 2:
+    if len(df) < SLOW_SMA + 3:
         return None
 
     prev_fast = df["sma_fast"].iloc[-2]
     prev_slow = df["sma_slow"].iloc[-2]
     curr_fast = df["sma_fast"].iloc[-1]
     curr_slow = df["sma_slow"].iloc[-1]
+    close = df["close"].iloc[-1]
 
-    if pd.isna(prev_fast) or pd.isna(prev_slow) or pd.isna(curr_fast) or pd.isna(curr_slow):
+    if any(pd.isna(x) for x in (prev_fast, prev_slow, curr_fast, curr_slow, close)):
         return None
 
-    if prev_fast <= prev_slow and curr_fast > curr_slow:
+    # Golden cross AND price above slow SMA (uptrend filter)
+    if prev_fast <= prev_slow and curr_fast > curr_slow and close > curr_slow:
         return "BUY"
+    # Death cross
     if prev_fast >= prev_slow and curr_fast < curr_slow:
         return "SELL"
     return None
 
 
 def equity(balance, position, entry_price, price):
-    if position == "long" and entry_price > 0:
+    if position == "long" and entry_price > 0 and price:
         return balance + SIZE_USDT * ((price - entry_price) / entry_price)
     return balance
 
@@ -113,7 +123,8 @@ def print_summary(start, balance, position, entry_price, price, trades):
 def main():
     print("=" * 60)
     print("  Simple Educational Trading Bot")
-    print("  Strategy: SMA Crossover")
+    print("  Closed-candle SMA + trend filter")
+    print("  Profit NOT guaranteed")
     print("=" * 60)
     print(f"Symbol:      {SYMBOL}")
     print(f"Timeframe:   {TIMEFRAME}")
@@ -132,31 +143,38 @@ def main():
     balance = START_BAL
     trades = 0
     last_price = None
+    last_signal_ts = None
 
     while True:
         try:
             time_str = datetime.now().strftime("%H:%M:%S")
             signal = None
             price = None
+            bar_ts = None
+            fast_s, slow_s = "n/a", "n/a"
 
             try:
-                df = fetch_ohlcv(exchange, SYMBOL, TIMEFRAME)
-                df = add_indicators(df)
+                raw = fetch_ohlcv(exchange, SYMBOL, TIMEFRAME)
+                raw = add_indicators(raw)
+                df = closed_bars(raw)
                 last_df = df
                 signal = generate_signal(df)
-                price = float(df["close"].iloc[-1])
+                price = float(raw["close"].iloc[-1])  # live price for SL/TP
+                last_price = price
                 fast = df["sma_fast"].iloc[-1]
                 slow = df["sma_slow"].iloc[-1]
+                bar_ts = df["timestamp"].iloc[-1]
                 fast_s = f"{fast:.2f}" if pd.notna(fast) else "n/a"
                 slow_s = f"{slow:.2f}" if pd.notna(slow) else "n/a"
             except Exception as e:
                 print(f"[{time_str}] klines fail ({type(e).__name__}), trying ticker...")
                 price = fetch_last_price(exchange, SYMBOL)
+                last_price = price
                 if last_df is not None:
                     signal = generate_signal(last_df)
+                    bar_ts = last_df["timestamp"].iloc[-1]
                 fast_s, slow_s = "last", "last"
 
-            last_price = price
             eq = equity(balance, position, entry_price, price)
             pos = "LONG" if position == "long" else "FLAT"
             print(
@@ -164,24 +182,28 @@ def main():
                 f"| {pos} | Bal: {eq:.2f} USDT ({eq - START_BAL:+.2f})"
             )
 
-            if signal == "BUY" and position is None:
-                print(f"  >>> BUY SIGNAL at {price:.2f}")
+            same_bar = bar_ts is not None and last_signal_ts is not None and bar_ts == last_signal_ts
+
+            if signal == "BUY" and position is None and not same_bar:
+                print(f"  >>> BUY (closed bar) at {price:.2f}")
                 position = "long"
                 entry_price = price
+                last_signal_ts = bar_ts
                 mode = "PAPER" if PAPER_TRADING else "LIVE"
                 print(f"  [{mode}] Opened LONG {SIZE_USDT:.2f} USDT at {entry_price:.2f}")
 
-            elif signal == "SELL" and position == "long":
+            elif signal == "SELL" and position == "long" and not same_bar:
                 pnl_pct = (price - entry_price) / entry_price
                 pnl_usdt = SIZE_USDT * pnl_pct
                 balance += pnl_usdt
                 trades += 1
-                print(f"  >>> SELL SIGNAL at {price:.2f}")
+                last_signal_ts = bar_ts
+                print(f"  >>> SELL (closed bar) at {price:.2f}")
                 print(f"  Closed LONG | PnL: {pnl_usdt:+.2f} USDT ({pnl_pct*100:+.2f}%) | Bal: {balance:.2f}")
                 position = None
                 entry_price = 0.0
 
-            if position == "long" and entry_price > 0:
+            if position == "long" and entry_price > 0 and price:
                 change = (price - entry_price) / entry_price
                 if change <= -STOP_LOSS_PCT:
                     pnl_usdt = SIZE_USDT * change
