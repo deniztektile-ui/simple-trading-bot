@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple Educational Trading Bot
-SMA crossover on CLOSED candles only + trend filter.
+SMA + trend follow on short timeframe so it actually opens trades.
 Paper trading by default. No profit guarantee.
 """
 
@@ -14,6 +14,7 @@ from config import *
 
 START_BAL = float(globals().get("STARTING_BALANCE", POSITION_SIZE_USDT))
 SIZE_USDT = float(POSITION_SIZE_USDT)
+POLL = int(globals().get("POLL_SECONDS", 8))
 
 
 def create_exchange():
@@ -35,7 +36,7 @@ def create_exchange():
     return exchange
 
 
-def fetch_ohlcv(exchange, symbol, timeframe, limit=120, retries=3):
+def fetch_ohlcv(exchange, symbol, timeframe, limit=80, retries=3):
     last_error = None
     for attempt in range(1, retries + 1):
         try:
@@ -71,13 +72,13 @@ def add_indicators(df):
 
 
 def closed_bars(df):
-    """Drop the still-forming last candle so SMA does not flicker every 30s."""
     if len(df) < 3:
         return df
     return df.iloc[:-1].copy()
 
 
 def generate_signal(df):
+    """BUY not only on exact cross — also if already in uptrend (fast > slow and price > slow)."""
     if len(df) < SLOW_SMA + 3:
         return None
 
@@ -90,11 +91,14 @@ def generate_signal(df):
     if any(pd.isna(x) for x in (prev_fast, prev_slow, curr_fast, curr_slow, close)):
         return None
 
-    # Golden cross AND price above slow SMA (uptrend filter)
-    if prev_fast <= prev_slow and curr_fast > curr_slow and close > curr_slow:
+    golden = prev_fast <= prev_slow and curr_fast > curr_slow
+    uptrend = curr_fast > curr_slow and close > curr_slow
+    death = prev_fast >= prev_slow and curr_fast < curr_slow
+    downtrend = curr_fast < curr_slow and close < curr_slow
+
+    if golden or uptrend:
         return "BUY"
-    # Death cross
-    if prev_fast >= prev_slow and curr_fast < curr_slow:
+    if death or downtrend:
         return "SELL"
     return None
 
@@ -123,7 +127,7 @@ def print_summary(start, balance, position, entry_price, price, trades):
 def main():
     print("=" * 60)
     print("  Simple Educational Trading Bot")
-    print("  Closed-candle SMA + trend filter")
+    print("  Fast SMA + trend follow (opens trades, does not wait days)")
     print("  Profit NOT guaranteed")
     print("=" * 60)
     print(f"Symbol:      {SYMBOL}")
@@ -133,6 +137,7 @@ def main():
     print(f"Paper mode:  {PAPER_TRADING}")
     print(f"Start:       {START_BAL:.2f} USDT")
     print(f"Size/trade:  {SIZE_USDT:.2f} USDT")
+    print(f"Poll:        {POLL}s")
     print("=" * 60)
     print("Press Ctrl+C to stop\n")
 
@@ -159,7 +164,7 @@ def main():
                 df = closed_bars(raw)
                 last_df = df
                 signal = generate_signal(df)
-                price = float(raw["close"].iloc[-1])  # live price for SL/TP
+                price = float(raw["close"].iloc[-1])
                 last_price = price
                 fast = df["sma_fast"].iloc[-1]
                 slow = df["sma_slow"].iloc[-1]
@@ -179,13 +184,13 @@ def main():
             pos = "LONG" if position == "long" else "FLAT"
             print(
                 f"[{time_str}] Price: {price:.2f} | FastSMA: {fast_s} | SlowSMA: {slow_s} "
-                f"| {pos} | Bal: {eq:.2f} USDT ({eq - START_BAL:+.2f})"
+                f"| {pos} | Bal: {eq:.2f} USDT ({eq - START_BAL:+.2f}) | sig={signal or '-'}"
             )
 
             same_bar = bar_ts is not None and last_signal_ts is not None and bar_ts == last_signal_ts
 
             if signal == "BUY" and position is None and not same_bar:
-                print(f"  >>> BUY (closed bar) at {price:.2f}")
+                print(f"  >>> BUY at {price:.2f}")
                 position = "long"
                 entry_price = price
                 last_signal_ts = bar_ts
@@ -198,7 +203,7 @@ def main():
                 balance += pnl_usdt
                 trades += 1
                 last_signal_ts = bar_ts
-                print(f"  >>> SELL (closed bar) at {price:.2f}")
+                print(f"  >>> SELL at {price:.2f}")
                 print(f"  Closed LONG | PnL: {pnl_usdt:+.2f} USDT ({pnl_pct*100:+.2f}%) | Bal: {balance:.2f}")
                 position = None
                 entry_price = 0.0
@@ -220,7 +225,7 @@ def main():
                     position = None
                     entry_price = 0.0
 
-            time.sleep(30)
+            time.sleep(POLL)
 
         except KeyboardInterrupt:
             print_summary(START_BAL, balance, position, entry_price, last_price, trades)
