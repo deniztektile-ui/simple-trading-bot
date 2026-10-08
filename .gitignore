@@ -6,3 +6,7 @@ trades.csv
 council.log
 venv/
 .venv/
+events.jsonl
+.env
+venv/
+.venv/
