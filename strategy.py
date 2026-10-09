@@ -4,6 +4,8 @@ BUY  — быстрая SMA пересекла медленную снизу в�
 SELL — быстрая SMA пересекла медленную сверху вниз.
 HOLD — пересечения нет.
 """
+from __future__ import annotations
+
 import pandas as pd
 
 

@@ -6,6 +6,8 @@
   - стоп-лосс и тейк-профит закрывают позицию автоматически.
 Комиссия берётся и при входе, и при выходе.
 """
+from __future__ import annotations
+
 import csv
 import os
 from dataclasses import dataclass, field

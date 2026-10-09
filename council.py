@@ -9,6 +9,8 @@
 
 ИИ только советуют. Сделку исполняет симулятор, а стоп-лосс работает всегда.
 """
+from __future__ import annotations
+
 import json
 import os
 import re
