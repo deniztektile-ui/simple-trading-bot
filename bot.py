@@ -6,21 +6,13 @@
 import sys
 import time
 
-import ccxt
-import pandas as pd
 from dotenv import load_dotenv
 
 import config
+import market_data
 from council import Council
 from paper_broker import PaperBroker
 from strategy import add_indicators, market_snapshot, signal_at
-
-
-def fetch_candles(exchange) -> pd.DataFrame:
-    raw = exchange.fetch_ohlcv(config.SYMBOL, config.TIMEFRAME, limit=config.CANDLES_LIMIT)
-    df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
-    df["time"] = pd.to_datetime(df["ts"], unit="ms", utc=True).dt.strftime("%Y-%m-%d %H:%M")
-    return df
 
 
 def main():
@@ -29,7 +21,6 @@ def main():
 
     load_dotenv()
     # Для симуляции ключи биржи не нужны — цены публичные.
-    exchange = getattr(ccxt, config.EXCHANGE)({"enableRateLimit": True})
     broker = PaperBroker(config.STARTING_BALANCE, config.POSITION_SIZE_USDT, config.STOP_LOSS_PCT,
                          config.TAKE_PROFIT_PCT, config.FEE_PCT, log_path=config.TRADES_LOG)
     council = Council(config.AI_MODELS, config.COUNCIL_QUORUM, config.AI_TIMEOUT_SECONDS,
@@ -44,7 +35,7 @@ def main():
     try:
         while True:
             try:
-                df = add_indicators(fetch_candles(exchange), config.FAST_SMA, config.SLOW_SMA, config.RSI_PERIOD)
+                df = add_indicators(market_data.fetch_candles(config.SYMBOL, config.TIMEFRAME, config.CANDLES_LIMIT), config.FAST_SMA, config.SLOW_SMA, config.RSI_PERIOD)
             except Exception as e:
                 print(f"Ошибка получения цен: {e}. Повтор через {config.POLL_SECONDS} с.")
                 time.sleep(config.POLL_SECONDS)

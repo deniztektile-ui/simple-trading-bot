@@ -16,20 +16,9 @@ from strategy import add_indicators, signal_at
 
 
 def download(days: int) -> pd.DataFrame:
-    import ccxt
-    ex = getattr(ccxt, config.EXCHANGE)({"enableRateLimit": True})
-    ms = ex.parse_timeframe(config.TIMEFRAME) * 1000
-    since = ex.milliseconds() - days * 24 * 3600 * 1000
-    rows = []
-    while since < ex.milliseconds() - ms:
-        batch = ex.fetch_ohlcv(config.SYMBOL, config.TIMEFRAME, since=since, limit=1000)
-        if not batch:
-            break
-        rows += batch
-        since = batch[-1][0] + ms
-    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"]).drop_duplicates("ts")
-    df["time"] = pd.to_datetime(df["ts"], unit="ms", utc=True).dt.strftime("%Y-%m-%d %H:%M")
-    return df.reset_index(drop=True)
+    import market_data
+    print(f"Загружаю свечи за {days} дн. с Binance...")
+    return market_data.fetch_history(config.SYMBOL, config.TIMEFRAME, days)
 
 
 def run(df: pd.DataFrame, fast=None, slow=None, sl=None, tp=None, fee=None) -> dict:

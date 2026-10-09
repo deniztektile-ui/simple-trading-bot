@@ -88,3 +88,12 @@ def test_backtest_runs():
     r = backtest.run(make_df(closes))
     assert r["trades"] > 0
     assert r["candles"] == 3000
+
+
+def test_market_data_parsing(monkeypatch):
+    import market_data
+    rows = [[1700000000000 + i * 60000, "100", "101", "99", str(100 + i), "5", 0] for i in range(5)]
+    monkeypatch.setattr(market_data, "_get", lambda params: rows)
+    df = market_data.fetch_candles("BTC/USDT", "1m", 5)
+    assert list(df["close"]) == [100.0, 101.0, 102.0, 103.0, 104.0]
+    assert df["time"].iloc[0].startswith("2023-11-14")
