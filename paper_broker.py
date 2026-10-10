@@ -35,6 +35,18 @@ class PaperBroker:
     position: Position | None = None
     trades: list = field(default_factory=list)
 
+    def entry_allowed(self, starting_balance: float, max_loss_pct: float,
+                      max_consecutive_losses: int) -> bool:
+        """Ограничения новых входов за текущий запуск; выходы не блокируются."""
+        if self.balance <= starting_balance * (1 - max_loss_pct):
+            return False
+        losses = 0
+        for trade in reversed(self.trades):
+            if trade["pnl_usdt"] >= 0:
+                break
+            losses += 1
+        return losses < max_consecutive_losses
+
     def equity(self, price: float) -> float:
         if self.position:
             return self.balance + self.position.amount * price * (1 - self.fee_pct)

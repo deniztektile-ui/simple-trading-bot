@@ -20,7 +20,7 @@ import dashboard
 import market_data
 from council import Council
 from paper_broker import PaperBroker
-from strategy import add_indicators, market_snapshot, signal_at
+from strategy import add_indicators, market_snapshot, confirmed_signal_at
 
 
 def now() -> str:
@@ -85,7 +85,14 @@ def main():
             candle_time = df["time"].iloc[i]
             if candle_time != last_candle:
                 last_candle = candle_time
-                sig = signal_at(df, i)
+                sig = confirmed_signal_at(df, i, config.ENTRY_CONFIRM_CANDLES,
+                                          max(config.ENTRY_MIN_GAP_PCT,
+                                              1 / (1 - config.FEE_PCT) ** 2 - 1))
+                if sig == "BUY" and not broker.entry_allowed(
+                        config.STARTING_BALANCE, config.MAX_SESSION_LOSS_PCT,
+                        config.MAX_CONSECUTIVE_LOSSES):
+                    log("Новые входы остановлены: достигнут лимит потерь за запуск", "err")
+                    sig = "HOLD"
                 actionable = (sig == "BUY" and not broker.position) or (sig == "SELL" and broker.position)
                 if actionable:
                     go = True
@@ -104,9 +111,15 @@ def main():
                         # голосование может занять до 30 с — берём свежую цену
                         try:
                             price = float(market_data.fetch_candles(config.SYMBOL, config.TIMEFRAME, 2)["close"].iloc[-1])
-                        except Exception:
-                            pass
-                    if go and sig == "BUY":
+                        except Exception as e:
+                            log(f"Нет свежей цены после совета: {e}. Сделка пропущена", "err")
+                            go = False
+                        if go and broker.position:
+                            closed = broker.check_exits(price, price)
+                            if closed:
+                                log(f"{closed['reason']}: прибыль {closed['pnl_usdt']} $", "sell")
+                                go = False
+                    if go and sig == "BUY" and not closed:
                         if not broker.buy(price):
                             log(f"Покупка не удалась: на счету {broker.balance:.2f} $ — слишком мало", "err")
                         else:
@@ -122,7 +135,10 @@ def main():
                 price=price, equity=broker.equity(price), balance=broker.balance,
                 position=asdict(broker.position) if broker.position else None,
                 trades=list(broker.trades), updated=now(),
-                status="в позиции" if broker.position else "ждёт сигнал",
+                status=("в позиции" if broker.position else
+                        "ждёт сигнал" if broker.entry_allowed(
+                            config.STARTING_BALANCE, config.MAX_SESSION_LOSS_PCT,
+                            config.MAX_CONSECUTIVE_LOSSES) else "лимит потерь: входы остановлены"),
                 candles=[{"time": r.time, "close": float(r.close),
                           "f": None if r.sma_fast != r.sma_fast else round(float(r.sma_fast), 2),
                           "s": None if r.sma_slow != r.sma_slow else round(float(r.sma_slow), 2)}

@@ -12,7 +12,7 @@ import pandas as pd
 
 import config
 from paper_broker import PaperBroker
-from strategy import add_indicators, signal_at
+from strategy import add_indicators, confirmed_signal_at
 
 
 def download(days: int) -> pd.DataFrame:
@@ -35,7 +35,9 @@ def run(df: pd.DataFrame, fast=None, slow=None, sl=None, tp=None, fee=None) -> d
     for j in range(len(df)):
         row = df.iloc[j]
         # 1) Сигнал прошлой свечи исполняем по цене открытия текущей
-        if pending == "BUY" and not broker.position:
+        if pending == "BUY" and not broker.position and broker.entry_allowed(
+                config.STARTING_BALANCE, config.MAX_SESSION_LOSS_PCT,
+                config.MAX_CONSECUTIVE_LOSSES):
             broker.buy(float(row["open"]), row["time"])
         elif pending == "SELL" and broker.position:
             broker.sell(float(row["open"]), "SIGNAL", row["time"])
@@ -43,7 +45,9 @@ def run(df: pd.DataFrame, fast=None, slow=None, sl=None, tp=None, fee=None) -> d
         # 2) Стоп-лосс / тейк-профит внутри свечи
         broker.check_exits(float(row["low"]), float(row["high"]), row["time"])
         # 3) Новый сигнал по закрытию свечи
-        sig = signal_at(df, j)
+        sig = confirmed_signal_at(df, j, config.ENTRY_CONFIRM_CANDLES,
+                                  max(config.ENTRY_MIN_GAP_PCT,
+                                      1 / (1 - fee) ** 2 - 1))
         if sig != "HOLD":
             pending = sig
         eq = broker.equity(float(row["close"]))
