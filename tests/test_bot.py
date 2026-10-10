@@ -83,8 +83,10 @@ def test_council_no_keys(monkeypatch):
 
 
 def test_backtest_runs():
-    rng = np.random.default_rng(0)
-    closes = 60000 * np.exp(np.cumsum(rng.normal(0, 0.001, 3000)))
+    # Чёткий тренд проходит фильтр; случайный шум может не дать ни одного входа.
+    cycle = np.concatenate([np.full(50, 60000.), np.linspace(60000, 90000, 100),
+                            np.linspace(90000, 60000, 100)])
+    closes = np.tile(cycle, 12)
     r = backtest.run(make_df(closes))
     assert r["trades"] > 0
     assert r["candles"] == 3000
@@ -132,3 +134,43 @@ def test_no_secrets_committed():
         if os.path.isfile(path):
             text = open(path, encoding="utf-8", errors="ignore").read()
             assert not pat.search(text), f"похоже на ключ в {f}"
+
+
+def test_confirmed_entry_rejects_fee_sized_noise():
+    from strategy import confirmed_signal_at
+    df = pd.DataFrame({'close': [100, 100.05, 100.08, 100.09],
+                       'sma_fast': [100, 100.04, 100.06, 100.07],
+                       'sma_slow': [100, 100.01, 100.02, 100.03]})
+    assert confirmed_signal_at(df, 3, 3, .0025) == 'HOLD'
+
+
+def test_confirmed_entry_only_after_closed_confirmation():
+    from strategy import confirmed_signal_at
+    df = pd.DataFrame({'close': [100, 101, 102, 103, 104],
+                       'sma_fast': [100, 100.6, 101.2, 102, 103],
+                       'sma_slow': [100, 100.1, 100.2, 100.3, 100.4]})
+    assert confirmed_signal_at(df, 1, 3, .0025) == 'HOLD'
+    assert confirmed_signal_at(df, 2, 3, .0025) == 'HOLD'
+    assert confirmed_signal_at(df, 3, 3, .0025) == 'BUY'
+    assert confirmed_signal_at(df, 4, 3, .0025) == 'HOLD'
+    changed = df.copy()
+    changed.loc[4, ['close', 'sma_fast', 'sma_slow']] = 1
+    assert confirmed_signal_at(changed, 3, 3, .0025) == 'BUY'
+
+
+def test_loss_caps_block_entries_but_allow_stop():
+    b = PaperBroker(50, 10, .008, .016, .001)
+    for _ in range(3):
+        assert b.entry_allowed(50, .02, 3)
+        b.buy(100)
+        assert b.check_exits(99, 99)['pnl_usdt'] < 0
+    assert not b.entry_allowed(50, .02, 3)
+    b.balance = 49
+    assert not b.entry_allowed(50, .02, 100)
+
+
+def test_reversal_exit_still_allowed():
+    from strategy import confirmed_signal_at
+    df = pd.DataFrame({'close': [100, 99], 'sma_fast': [101, 99],
+                       'sma_slow': [100, 100]})
+    assert confirmed_signal_at(df, 1, 3, .0025) == 'SELL'

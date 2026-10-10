@@ -13,7 +13,7 @@ SLOW_SMA = 13
 RSI_PERIOD = 14               # доп. индикатор, передаётся совету ИИ
 CANDLES_LIMIT = 200           # сколько свечей загружать для расчёта
 
-POSITION_SIZE_USDT = 50
+POSITION_SIZE_USDT = 10
 STARTING_BALANCE = 50.0
 
 STOP_LOSS_PCT = 0.008         # 0.8% — короче на 1m
@@ -58,3 +58,10 @@ TRADES_LOG = "trades.csv"     # все сделки
 COUNCIL_LOG = "council.log"   # что ответил каждый ИИ
 
 # ====================================================
+
+# Подтверждённый вход: 3 закрытые свечи выше медленной SMA,
+# растущая медленная SMA и разрыв средних больше двух комиссий.
+ENTRY_CONFIRM_CANDLES = 3
+ENTRY_MIN_GAP_PCT = 0.0025
+MAX_SESSION_LOSS_PCT = 0.02  # остановка новых входов после потери 2% за запуск
+MAX_CONSECUTIVE_LOSSES = 3

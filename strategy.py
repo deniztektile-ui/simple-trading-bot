@@ -49,3 +49,30 @@ def market_snapshot(df: pd.DataFrame, i: int, last_n: int = 20) -> dict:
         "change_last_n_pct": round((float(window["close"].iloc[-1]) / float(window["close"].iloc[0]) - 1) * 100, 3),
         "last_closes": [round(float(x), 2) for x in window["close"].tolist()],
     }
+
+
+def confirmed_signal_at(df: pd.DataFrame, i: int, confirmation: int,
+                        min_gap_pct: float) -> str:
+    """Подтверждаем недавний BUY без будущих/незакрытых свечей.
+
+    SELL не блокируем: разворот тренда должен позволять ограничить убыток.
+    Размер разрыва SMA — фильтр шума, а не прогноз доходности.
+    """
+    if confirmation < 1 or min_gap_pct < 0:
+        raise ValueError("Invalid entry confirmation settings")
+    if signal_at(df, i) == "SELL":
+        return "SELL"
+    start = i - confirmation + 1
+    if start < 1 or signal_at(df, start) != "BUY":
+        return "HOLD"
+    window = df.iloc[start:i + 1]
+    if window[["sma_fast", "sma_slow"]].isna().any().any():
+        return "HOLD"
+    if not ((window["sma_fast"] > window["sma_slow"]) &
+            (window["close"] > window["sma_slow"])).all():
+        return "HOLD"
+    slow = float(df["sma_slow"].iloc[i])
+    if slow <= float(df["sma_slow"].iloc[start - 1]):
+        return "HOLD"
+    gap = float(df["sma_fast"].iloc[i]) / slow - 1
+    return "BUY" if gap >= min_gap_pct else "HOLD"
