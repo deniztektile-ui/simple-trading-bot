@@ -95,7 +95,7 @@ let last=null;
 async function tick(){try{const d=await (await fetch("/api/state",{cache:"no-store"})).json();last=d;render(d);$("live").textContent="в работе";$("live").className="tag live"}catch(e){$("live").textContent="бот остановлен";$("live").className="tag"}}
 function render(d){const i=d.info;$("title").textContent="Торговый бот · "+i.symbol;$("status").textContent=d.status+(d.updated?" · обновлено "+d.updated.slice(11):"");
  $("price").textContent=f(d.price);$("sym").textContent=i.symbol+", свечи "+i.timeframe;
- $("equity").textContent=f(d.equity)+" $";const p=d.equity-i.start;$("pnl").innerHTML=`<span class="${p>=0?"up":"down"}">${p>=0?"+":""}${f(p)} $ (${f(p/i.start*100)}%)</span> от ${f(i.start)} $`;
+ if(d.equity==null){$("equity").textContent="—";$("pnl").textContent="ждём цены с биржи"}else{$("equity").textContent=f(d.equity)+" $";const p=d.equity-i.start;$("pnl").innerHTML=`<span class="${p>=0?"up":"down"}">${p>=0?"+":""}${f(p)} $ (${f(p/i.start*100)}%)</span> от ${f(i.start)} $`}
  if(d.position){const q=d.position,ch=(d.price/q.entry_price-1)*100;$("pos").innerHTML=`<span class="${ch>=0?"up":"down"}">${ch>=0?"+":""}${f(ch)}%</span>`;$("posd").textContent=`куплено по ${f(q.entry_price)} · стоп ${f(q.stop_loss)} · тейк ${f(q.take_profit)}`}else{$("pos").textContent="нет";$("posd").textContent="ждём сигнал на покупку"}
  const tr=d.trades;$("ntr").textContent=tr.length;const w=tr.filter(t=>t.pnl_usdt>0).length;$("wr").textContent=tr.length?`прибыльных ${w} из ${tr.length}`:"";
  $("notr").style.display=tr.length?"none":"block";$("trades").innerHTML=tr.slice().reverse().map(t=>`<tr><td>${t.closed_at.slice(5,16)}</td><td>${f(t.entry)}</td><td>${f(t.exit)}</td><td class="${t.pnl_usdt>=0?"up":"down"}">${t.pnl_usdt>=0?"+":""}${f(t.pnl_usdt,3)}</td><td>${RS[t.reason]||t.reason}</td></tr>`).join("");
@@ -134,6 +134,14 @@ def start(state: BotState, port: int = 8000) -> str:
         def log_message(self, *args):  # не засорять терминал
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    last_err = None
+    for p in range(port, port + 10):  # если порт занят (например, бот уже запущен) — берём следующий
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            break
+        except OSError as e:
+            last_err = e
+    else:
+        raise last_err
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return f"http://localhost:{port}"
+    return f"http://localhost:{p}"
