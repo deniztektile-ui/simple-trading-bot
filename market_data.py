@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 
 import pandas as pd
 import requests
@@ -31,7 +32,8 @@ def _to_df(rows: list) -> pd.DataFrame:
     df = pd.DataFrame([r[:6] for r in rows], columns=["ts", "open", "high", "low", "close", "volume"])
     df = df.astype({"ts": "int64", "open": float, "high": float, "low": float, "close": float, "volume": float})
     df = df.drop_duplicates("ts").sort_values("ts").reset_index(drop=True)
-    df["time"] = pd.to_datetime(df["ts"], unit="ms", utc=True).dt.strftime("%Y-%m-%d %H:%M")
+    local_tz = datetime.now().astimezone().tzinfo  # время компьютера
+    df["time"] = pd.to_datetime(df["ts"], unit="ms", utc=True).dt.tz_convert(local_tz).dt.strftime("%Y-%m-%d %H:%M")
     return df
 
 

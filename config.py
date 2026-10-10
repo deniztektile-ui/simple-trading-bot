@@ -48,6 +48,10 @@ AI_MODELS = {
     "gemini": "gemini-2.5-flash",
 }
 
+# ---------------- СТРАНИЦА В БРАУЗЕРЕ ----------------
+DASHBOARD_PORT = 8000         # адрес: http://localhost:8000
+OPEN_BROWSER = True           # открывать браузер автоматически при запуске
+
 # ---------------- ЖУРНАЛЫ ----------------
 TRADES_LOG = "trades.csv"     # все сделки
 COUNCIL_LOG = "council.log"   # что ответил каждый ИИ
