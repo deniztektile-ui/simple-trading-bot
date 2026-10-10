@@ -447,8 +447,9 @@ def call_model(seat: str, snap: dict, cfg: dict) -> dict:
             )
             text = data["content"][0]["text"]
         else:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-            data = _http_json(url, {"contents": [{"parts": [{"text": prompt}]}]}, {"Content-Type": "application/json"})
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            data = _http_json(url, {"contents": [{"parts": [{"text": prompt}]}]},
+                              {"x-goog-api-key": key, "Content-Type": "application/json"})
             text = data["candidates"][0]["content"]["parts"][0]["text"]
         vote = Vote.model_validate(_extract_json(text))
         if seat != "CLAUDE" and vote.vote == "VETO":

@@ -112,6 +112,11 @@ addEventListener("resize",()=>last&&draw(last.candles,last.trades));tick();setIn
 def start(state: BotState, port: int = 8000) -> str:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            # Защита от "DNS rebinding": чужой сайт не сможет читать страницу бота
+            host = (self.headers.get("Host") or "").split(":")[0]
+            if host not in ("localhost", "127.0.0.1"):
+                self.send_error(403)
+                return
             if self.path.startswith("/api/state"):
                 body, ctype = state.snapshot().encode("utf-8"), "application/json; charset=utf-8"
             elif self.path in ("/", "/index.html"):

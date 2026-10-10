@@ -114,3 +114,21 @@ def test_stop_gap_fills_at_market():
 def test_buy_fails_when_broke():
     b = PaperBroker(0.5, 50, 0.01, 0.02, 0.001)
     assert b.buy(100) is False and b.position is None
+
+
+def test_no_secrets_committed():
+    """Репозиторий публичный: в файлах не должно быть настоящих ключей."""
+    import re
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        files = subprocess.check_output(["git", "ls-files"], cwd=root, text=True).split()
+    except Exception:
+        return
+    assert ".env" not in files, "файл .env с ключами попал в git!"
+    pat = re.compile(r"sk-ant-[\w-]{20,}|sk-proj-[\w-]{20,}|sk-[A-Za-z0-9]{32,}|xai-[A-Za-z0-9]{20,}|AIza[\w-]{30,}")
+    for f in files:
+        path = os.path.join(root, f)
+        if os.path.isfile(path):
+            text = open(path, encoding="utf-8", errors="ignore").read()
+            assert not pat.search(text), f"похоже на ключ в {f}"
