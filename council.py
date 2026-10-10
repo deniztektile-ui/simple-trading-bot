@@ -94,10 +94,10 @@ def parse_vote(text: str) -> tuple[str, str]:
                 return vote, str(data.get("reason", ""))[:200]
         except json.JSONDecodeError:
             pass
-    for word in ("BUY", "SELL", "HOLD"):
-        if re.search(rf"\b{word}\b", text.upper()):
-            return word, text.strip()[:200]
-    return "HOLD", "не удалось разобрать ответ"
+    found = [w for w in ("BUY", "SELL", "HOLD") if re.search(rf"\b{w}\b", text.upper())]
+    if len(found) == 1:  # только если ответ однозначный
+        return found[0], text.strip()[:200]
+    return "HOLD", "ответ неоднозначный или не разобран"
 
 
 class Council:

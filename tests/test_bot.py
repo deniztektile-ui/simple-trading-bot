@@ -97,3 +97,20 @@ def test_market_data_parsing(monkeypatch):
     df = market_data.fetch_candles("BTC/USDT", "1m", 5)
     assert list(df["close"]) == [100.0, 101.0, 102.0, 103.0, 104.0]
     assert len(df["time"].iloc[0]) == 16
+
+
+def test_parse_vote_ambiguous_is_hold():
+    assert parse_vote("I would not BUY here, better HOLD")[0] == "HOLD"
+    assert parse_vote("SELL")[0] == "SELL"
+
+
+def test_stop_gap_fills_at_market():
+    b = PaperBroker(50, 50, 0.01, 0.02, 0.0)
+    b.buy(100)
+    t = b.check_exits(95, 95)          # цена перепрыгнула стоп 99
+    assert t["exit"] == 95 and t["reason"] == "STOP_LOSS"
+
+
+def test_buy_fails_when_broke():
+    b = PaperBroker(0.5, 50, 0.01, 0.02, 0.001)
+    assert b.buy(100) is False and b.position is None

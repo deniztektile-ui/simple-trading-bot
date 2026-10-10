@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import html
 import sys
 import time
 import webbrowser
@@ -42,7 +43,9 @@ def main():
                                start=config.STARTING_BALANCE, members=members)
 
     def log(text: str, kind: str = "info"):
-        plain = text.replace("<b>", "").replace("</b>", "")
+        # текст от ИИ и ошибки экранируем, чтобы они не могли встроить HTML в страницу
+        text = html.escape(text).replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")
+        plain = html.unescape(text.replace("<b>", "").replace("</b>", ""))
         print(f"\n[{now()[11:19]}] {plain}")
         state.event(text, kind, now())
 
@@ -96,9 +99,18 @@ def main():
                         for k, err in res["errors"].items():
                             log(f"{k} ошибка: {err}", "err")
                         go = res["approved"] if res["approved"] is not None else config.TRADE_IF_COUNCIL_UNAVAILABLE
+                        if res["approved"] is None:
+                            log("Ни один ИИ не ответил — " + ("торгую по стратегии" if go else "сделку пропускаю"), "err")
+                        # голосование может занять до 30 с — берём свежую цену
+                        try:
+                            price = float(market_data.fetch_candles(config.SYMBOL, config.TIMEFRAME, 2)["close"].iloc[-1])
+                        except Exception:
+                            pass
                     if go and sig == "BUY":
-                        broker.buy(price)
-                        log(f"<b>Куплено</b> по {price:.2f} (стоп {broker.position.stop_loss:.2f}, тейк {broker.position.take_profit:.2f})", "buy")
+                        if not broker.buy(price):
+                            log(f"Покупка не удалась: на счету {broker.balance:.2f} $ — слишком мало", "err")
+                        else:
+                            log(f"<b>Куплено</b> по {price:.2f} (стоп {broker.position.stop_loss:.2f}, тейк {broker.position.take_profit:.2f})", "buy")
                     elif go and sig == "SELL":
                         t = broker.sell(price, "SIGNAL")
                         log(f"<b>Продано</b> по {price:.2f}, прибыль {t['pnl_usdt']} $", "sell")

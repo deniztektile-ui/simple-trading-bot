@@ -82,14 +82,15 @@ class PaperBroker:
 
     def check_exits(self, low: float, high: float, when: str | None = None) -> dict | None:
         """Проверка стоп-лосса и тейк-профита по диапазону свечи.
-        Если в одной свече задеты оба уровня — считаем, что сначала сработал стоп (осторожно)."""
+        Если в одной свече задеты оба уровня — считаем, что сначала сработал стоп (осторожно).
+        Если цена перепрыгнула уровень (весь диапазон ниже стопа), продаём по худшей цене, а не по стопу."""
         if not self.position:
             return None
         p = self.position
         if low <= p.stop_loss:
-            return self.sell(p.stop_loss, "STOP_LOSS", when)
+            return self.sell(min(p.stop_loss, high), "STOP_LOSS", when)
         if high >= p.take_profit:
-            return self.sell(p.take_profit, "TAKE_PROFIT", when)
+            return self.sell(max(p.take_profit, low), "TAKE_PROFIT", when)
         return None
 
     def _log(self, trade: dict) -> None:

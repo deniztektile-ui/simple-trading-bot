@@ -77,6 +77,7 @@ table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:ta
 </div></div>
 <script>
 const $=id=>document.getElementById(id),f=(x,d=2)=>x==null?"—":Number(x).toLocaleString("ru-RU",{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const RS={STOP_LOSS:"стоп-лосс",TAKE_PROFIT:"тейк-профит",SIGNAL:"сигнал",END:"конец"};
 function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
 function draw(c,trades){const cv=$("ch"),dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;cv.width=W*dpr;cv.height=H*dpr;const g=cv.getContext("2d");g.scale(dpr,dpr);g.clearRect(0,0,W,H);
@@ -101,7 +102,7 @@ function render(d){const i=d.info;$("title").textContent="Торговый бо�
  $("events").innerHTML=d.events.length?d.events.map(e=>`<div class="ev ${e.kind}"><span class="t">${(e.t||"").slice(11,16)}</span>${e.text}</div>`).join(""):'<div class="empty">Пока событий нет</div>';
  const c=d.council;if(!i.members.length){$("council").innerHTML='<div class="empty">Ключи ИИ не добавлены — бот торгует только по стратегии. Ключи вставляются в файл .env</div>'}
  else if(c){const VR={BUY:"купить",SELL:"продать",HOLD:"ждать"};$("council").className="";$("council").innerHTML=`<div class="s" style="margin-bottom:8px">${c.when} · сигнал <b>${VR[c.proposed]}</b> → <b class="${c.approved?"up":"down"}">${c.approved===null?"никто не ответил":c.approved?"одобрено":"отклонено"}</b></div><div class="votes">`+
-  i.members.map(m=>{const v=c.votes[m],e=c.errors[m];return `<div class="vote"><b>${m}</b>${v?`<span class="${v.vote==="BUY"?"up":v.vote==="SELL"?"down":""}">${VR[v.vote]}</span><div class="s">${v.reason||""}</div>`:`<span class="down">ошибка</span><div class="s">${(e||"").slice(0,80)}</div>`}</div>`}).join("")+"</div>"}
+  i.members.map(m=>{const v=c.votes[m],e=c.errors[m];return `<div class="vote"><b>${esc(m)}</b>${v?`<span class="${v.vote==="BUY"?"up":v.vote==="SELL"?"down":""}">${VR[v.vote]}</span><div class="s">${esc(v.reason)}</div>`:`<span class="down">ошибка</span><div class="s">${esc((e||"").slice(0,80))}</div>`}</div>`}).join("")+"</div>"}
  else $("council").innerHTML=`<div class="empty">Участники: ${i.members.join(", ")}. Ждём первый сигнал.</div>`;
  draw(d.candles,tr)}
 addEventListener("resize",()=>last&&draw(last.candles,last.trades));tick();setInterval(tick,3000);
