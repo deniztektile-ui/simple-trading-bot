@@ -27,9 +27,26 @@ def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # местное время
 
 
+_LOCK = None
+
+
+def single_instance() -> bool:
+    """Не даём запустить второго бота одновременно (иначе сделки дублируются в trades.csv)."""
+    global _LOCK
+    import socket
+    _LOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _LOCK.bind(("127.0.0.1", 47613))
+        return True
+    except OSError:
+        return False
+
+
 def main():
     if not config.PAPER_TRADING:
         sys.exit("Реальная торговля в этой версии отключена. Оставьте PAPER_TRADING = True.")
+    if not single_instance():
+        sys.exit("Бот уже запущен в другом окне Терминала. Остановите его (Ctrl + C) или пользуйтесь им.")
 
     load_dotenv()
     # Для симуляции ключи биржи не нужны — цены публичные.
@@ -66,7 +83,7 @@ def main():
         while True:
             try:
                 df = add_indicators(market_data.fetch_candles(config.SYMBOL, config.TIMEFRAME, config.CANDLES_LIMIT),
-                                    config.FAST_SMA, config.SLOW_SMA, config.RSI_PERIOD)
+                                    config.FAST_SMA, config.SLOW_SMA, config.RSI_PERIOD, config.TREND_SMA)
             except Exception as e:
                 log(f"Ошибка получения цен: {e}. Повтор через {config.POLL_SECONDS} с.", "err")
                 state.update(status="нет связи с биржей")
@@ -85,7 +102,7 @@ def main():
             candle_time = df["time"].iloc[i]
             if candle_time != last_candle:
                 last_candle = candle_time
-                sig = signal_at(df, i)
+                sig = signal_at(df, i, config.MIN_GAP_PCT, config.ADX_MIN)
                 actionable = (sig == "BUY" and not broker.position) or (sig == "SELL" and broker.position)
                 if actionable:
                     go = True
